@@ -1,9 +1,14 @@
+require 'shellwords'
 class Converter
   module Network
     protected
 
-    def get_paths_by_type(dir, file_re, tree = get_tree(get_tree_sha(dir)))
-      tree['tree'].select { |f| f['type'] == 'blob' && f['path'] =~ file_re }.map { |f| f['path'] }
+    def get_paths_by_type(dir, file_re, recursive = true)
+      get_file_paths(dir, recursive).select { |path| path =~ file_re }
+    end
+
+    def get_file_paths(dir, recursive = true)
+      get_tree(get_tree_sha(dir), recursive)['tree'].select { |f| f['type'] == 'blob' }.map { |f| f['path'] }
     end
 
     def read_files(path, files)
@@ -27,7 +32,7 @@ class Converter
       if File.directory?(full_path)
         files.each do |name|
           path = "#{full_path}/#{name}"
-          contents[name] = File.read(path, mode: 'rb') if File.exists?(path)
+          contents[name] = File.read(path, mode: 'rb') if File.exist?(path)
         end
       end
       contents
@@ -43,9 +48,10 @@ class Converter
 
 
     def get_file(url)
-      cache_path = "./#@cache_path#{URI(url).path}"
+      uri = URI(url)
+      cache_path = "./#@cache_path#{uri.path}#{uri.query.tr('?&=', '-') if uri.query}"
       FileUtils.mkdir_p File.dirname(cache_path)
-      if File.exists?(cache_path)
+      if File.exist?(cache_path)
         log_http_get_file url, true
         File.read(cache_path, mode: 'rb')
       else
@@ -58,12 +64,17 @@ class Converter
 
     # get sha of the branch (= the latest commit)
     def get_branch_sha
-      return @branch if @branch =~ /\A[0-9a-f]+\z/
-      cmd = "git ls-remote 'https://github.com/#@repo' | awk '/#@branch/ {print $1}'"
-      log cmd
-      @branch_sha ||= %x[#{cmd}].chomp
-      raise 'Could not get branch sha!' unless $?.success?
-      @branch_sha
+      @branch_sha ||= begin
+        if @branch + "\n" == %x[git rev-parse #@branch]
+          @branch
+        else
+          cmd = "git ls-remote #{Shellwords.escape "https://github.com/#@repo"} #@branch"
+          log cmd
+          result = %x[#{cmd}]
+          raise 'Could not get branch sha!' unless $?.success? && !result.empty?
+          result.split(/\s+/).first
+        end
+      end
     end
 
     # Get the sha of a dir
@@ -75,8 +86,8 @@ class Converter
       @trees ||= get_tree(@branch_sha)
     end
 
-    def get_tree(sha)
-      get_json("https://api.github.com/repos/#@repo/git/trees/#{sha}")
+    def get_tree(sha, recursive = true)
+      get_json("https://api.github.com/repos/#@repo/git/trees/#{sha}#{'?recursive=1' if recursive}")
     end
 
     def get_json(url)

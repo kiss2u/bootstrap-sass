@@ -10,7 +10,7 @@ Dir['test/support/**/*.rb'].each do |file|
   require_relative File.join('.', file)
 end
 
-GEM_PATH = File.expand_path('../', File.dirname(__FILE__))
+GEM_PATH = File.expand_path('../', __dir__)
 
 #= Capybara + Poltergeist
 require 'capybara/poltergeist'
@@ -26,10 +26,11 @@ Capybara.register_driver :poltergeist do |app|
 end
 
 Capybara.configure do |config|
+  config.server = :webrick
   config.app_host = 'http://localhost:7000'
   config.default_driver    = :poltergeist
   config.javascript_driver = :poltergeist
   config.server_port       = 7000
-  config.default_wait_time = 10
+  config.default_max_wait_time = 10
 end
 
